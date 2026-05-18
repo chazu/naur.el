@@ -157,16 +157,25 @@ The spine should always stay visible. When you propose edits or read files, they
   "Return the naur directory for the current project."
   (expand-file-name naur-directory (naur--project-root)))
 
-(defvar naur--source-directory
-  (file-name-directory
-   (file-truename (or load-file-name buffer-file-name
-                      (locate-library "naur-layout"))))
-  "Directory where naur source files live, resolved through symlinks.")
-
 (defun naur--template-path ()
-  "Return the path to the spine template file."
-  (when naur--source-directory
-    (expand-file-name "spine-template.org" naur--source-directory)))
+  "Return the path to the spine template file.
+Checks multiple locations: next to the .el source (following symlinks),
+next to the loaded file, and in straight's repos directory."
+  (let ((candidates
+         (delq nil
+               (list
+                (let ((lib (locate-library "naur-layout" nil nil '(".el"))))
+                  (when lib
+                    (expand-file-name "spine-template.org"
+                                      (file-name-directory (file-truename lib)))))
+                (let ((lib (locate-library "naur-layout")))
+                  (when lib
+                    (expand-file-name "spine-template.org"
+                                      (file-name-directory (file-truename lib)))))
+                (expand-file-name
+                 "straight/repos/naur.el/spine-template.org"
+                 user-emacs-directory)))))
+    (cl-find-if #'file-exists-p candidates)))
 
 (defun naur--seed-spine (path)
   "Populate a new spine at PATH from the template."
