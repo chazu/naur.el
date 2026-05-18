@@ -160,7 +160,10 @@ The spine should always stay visible. When you propose edits or read files, they
 (defun naur--template-path ()
   "Return the path to the spine template file."
   (expand-file-name "spine-template.org"
-                    (file-name-directory (locate-library "naur"))))
+                    (file-name-directory
+                     (or load-file-name
+                         (locate-library "naur-layout")
+                         (locate-library "naur")))))
 
 (defun naur--seed-spine (path)
   "Populate a new spine at PATH from the template."
