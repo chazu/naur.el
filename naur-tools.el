@@ -129,6 +129,33 @@ Returns up to MAX-RESULTS matches as file:line:content."
                  "Malformed CONVERSATION drawer — no :END: found."))
            "No conversation recorded yet."))))))
 
+(defun naur--tool-append-conversation (heading-path text)
+  "Append TEXT to the CONVERSATION drawer at HEADING-PATH.
+Creates the drawer if it doesn't exist."
+  (let ((spine naur--spine-file))
+    (unless spine
+      (error "No spine file set"))
+    (with-current-buffer (find-file-noselect spine)
+      (org-with-wide-buffer
+       (goto-char (point-min))
+       (let ((path (if (listp heading-path) heading-path
+                     (split-string heading-path "/"))))
+         (dolist (component path)
+           (unless (re-search-forward
+                    (concat "^\\*+ +" (regexp-quote component)) nil t)
+             (error "Heading not found: %s" component))))
+       (let ((end (save-excursion (org-end-of-subtree t t))))
+         (if (re-search-forward "^[ \t]*:CONVERSATION:[ \t]*\n" end t)
+             (if (re-search-forward "^[ \t]*:END:" end t)
+                 (progn
+                   (goto-char (match-beginning 0))
+                   (insert text "\n"))
+               (error "Malformed CONVERSATION drawer — no :END: found"))
+           (org-end-of-meta-data t)
+           (insert ":CONVERSATION:\n" text "\n:END:\n"))))
+      (save-buffer)
+      (format "Appended to CONVERSATION drawer at %s." heading-path))))
+
 (defun naur--tool-propose-edit (file start-line end-line new-content description)
   "Propose an edit to FILE from START-LINE to END-LINE with NEW-CONTENT.
 DESCRIPTION is shown to the user. Requires human confirmation."
@@ -291,6 +318,14 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
    :category "naur")
 
   (gptel-make-tool
+   :function #'naur--tool-append-conversation
+   :name "append_conversation"
+   :description "Append a note to a heading's CONVERSATION drawer. Use to record key decisions, design rationale, or open questions that should persist beyond this chat session. Creates the drawer if it doesn't exist."
+   :args (list '(:name "heading_path" :type string :description "Slash-separated path to heading, e.g. \"System/API/Auth\"")
+               '(:name "text" :type string :description "Text to append — decisions, rationale, open questions"))
+   :category "naur")
+
+  (gptel-make-tool
    :function #'naur--tool-list-headings
    :name "list_headings"
    :description "List org spine headings with their status, owner, and code refs. Use to understand project structure."
@@ -340,6 +375,7 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
                     (gptel-get-tool '("naur" "read_heading"))
                     (gptel-get-tool '("naur" "search"))
                     (gptel-get-tool '("naur" "read_conversation"))
+                    (gptel-get-tool '("naur" "append_conversation"))
                     (gptel-get-tool '("naur" "list_headings"))
                     (gptel-get-tool '("naur" "propose_edit"))
                     (gptel-get-tool '("naur" "propose_heading"))

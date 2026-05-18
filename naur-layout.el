@@ -59,7 +59,9 @@ Work through the spine. Headings represent system boundaries at whatever granula
 - OWNER: human (you advise), agent (you drive but explain), both (true collaboration)
 - CODE_REF: links between design and implementation (file::lines or file::symbol)
 
-Go deep before going wide — one heading at a time, fully understood, before moving on. Keep the spine truthful: when code drifts from what a heading describes, flag it. Put your reasoning in CONVERSATION drawers; keep heading bodies for design facts that outlast any single conversation."
+Go deep before going wide — one heading at a time, fully understood, before moving on. Keep the spine truthful: when code drifts from what a heading describes, flag it. Put your reasoning in CONVERSATION drawers; keep heading bodies for design facts that outlast any single conversation.
+
+You have tools — use them. Read the spine and code before forming opinions. Check a heading's CONVERSATION drawer before resuming work on it. Propose changes as diffs and new headings, don't just describe what you'd change. Use search to find things rather than asking the human to paste code."
   "Base system prompt explaining the naur methodology to the agent."
   :type 'string
   :group 'naur)

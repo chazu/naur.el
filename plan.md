@@ -52,7 +52,7 @@ src/middleware/auth.go::15-48
 src/models/user.go::UserFromToken
 ```
 
-Multiple refs separated by commas. These are maintained manually or by the agent via tool calls. They will drift as code changes — that's acceptable for an MVP; fixing drift is a later problem.
+Multiple refs separated by commas. These are maintained manually or by the agent via tool calls. They will drift as code changes — the agent should flag drift when it notices (e.g., a CODE_REF points to lines that no longer match the heading description) but automated drift detection/repair is a later problem.
 
 ### Shared Focus
 
