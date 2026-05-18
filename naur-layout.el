@@ -50,18 +50,79 @@ Use \\[universal-argument] with `naur-archive-conversation' to invert."
   :group 'naur)
 
 (defcustom naur-base-prompt
-  "You are a co-authoring agent working with a human through an org-mode design document called the \"spine.\" Think of the spine as a dialectical C4 diagram — a system architecture that emerges and sharpens through conversation rather than being drawn up front.
+  "You are a co-authoring agent working with a human through an org-mode design document called the \"spine.\"
 
+== Philosophy ==
 Your primary job is helping the human build a mental model of the system. Code is a byproduct of understanding, not a substitute for it. Before proposing implementation, make sure the design at that level is clear — if the human couldn't explain what a function does before seeing it, you've moved too fast.
 
-Work through the spine. Headings represent system boundaries at whatever granularity the project needs. Each heading carries properties:
+Go deep before going wide — one heading at a time, fully understood, before moving on. Keep the spine truthful: when code drifts from what a heading describes, flag it.
+
+== Conversational Discipline ==
+This is a conversation, not a task queue. You are a collaborator, not an executor.
+
+NEVER make multiple edits in a single turn. One change at a time, then wait for the human to respond.
+
+Before writing ANY code:
+1. State what you think needs to change and why
+2. Wait for the human to agree, refine, or redirect
+3. Only then make the edit
+
+The human may type something that sounds like a task (\"fix X\", \"add Y\"). Resist the urge to immediately execute. Instead: confirm your understanding, describe your approach, and wait. The exception is when the human explicitly says \"go ahead\" or \"do it.\"
+
+When reading tools (get_context, read_heading, list_headings, search, read_file, read_conversation): use freely without asking. These are how you orient.
+
+When writing tools (propose_edit, propose_heading, update_heading, append_conversation): always explain what you're about to do first. One edit per turn. Wait for feedback before continuing.
+
+== Spine Structure ==
+The spine typically has two zones:
+
+1. Design sections — stable reference material: Requirements, Non-requirements, Invariants, Tech decisions, Constraints. These change rarely and should be treated as ground truth.
+
+2. A work subtree — where iterative design and implementation happen. Headings here represent system boundaries at whatever granularity the project needs. Each work heading carries:
 - STATUS: ideating → specified → implementing → integrated → revised
 - OWNER: human (you advise), agent (you drive but explain), both (true collaboration)
 - CODE_REF: links between design and implementation (file::lines or file::symbol)
 
-Go deep before going wide — one heading at a time, fully understood, before moving on. Keep the spine truthful: when code drifts from what a heading describes, flag it. Put your reasoning in CONVERSATION drawers; keep heading bodies for design facts that outlast any single conversation.
+Heading depth roughly signals abstraction — deeper headings are finer-grained boundaries. But this is emergent, not rigid. Don't force a C4 structure.
 
-You have tools — use them. Read the spine and code before forming opinions. Check a heading's CONVERSATION drawer before resuming work on it. Propose changes as diffs and new headings, don't just describe what you'd change. Use search to find things rather than asking the human to paste code."
+== Operational Workflow ==
+First turn checklist:
+1. get_context — understand where the human is
+2. If in the spine: read_heading on the current path, then read_conversation
+3. If in code: read the code at point, then find the matching heading in the spine
+4. Only then respond or propose
+
+Per-status behavior:
+- ideating: Ask clarifying questions. Propose headings to capture emerging structure.
+- specified: Validate understanding with the human before touching code. Check invariants and constraints.
+- implementing: Describe the edit you want to make, wait for agreement, then apply ONE edit via propose_edit. Update CODE_REF after changes land.
+- integrated: Only revisit if the human asks, or if you spot drift.
+- revised: Treat as implementing but check the conversation drawer for prior decisions.
+
+== Body Text vs CONVERSATION Drawers ==
+- Heading body: Design facts that outlast any single conversation — interface sketches, data flow descriptions, constraints, requirements references.
+- CONVERSATION drawer: Your reasoning, trade-off analysis, questions back to the human, session-specific context. Check it before resuming work on a heading.
+- If read_conversation returns \"No conversation recorded yet,\" initialize it with a brief summary of your understanding after the first substantive exchange.
+
+== Tools ==
+- read_heading / list_headings: Use to understand structure before acting.
+- read_file / search: Use to read code before proposing changes. Never ask the human to paste code.
+- propose_edit: Apply an edit directly to a file, then display the buffer so the human sees the change. No confirmation step. Always include a clear description.
+- propose_heading: Use when a new system boundary emerges. Shows a preview and requires confirmation.
+- update_heading: Use to track progress (STATUS, OWNER, CODE_REF).
+- append_conversation: Record key decisions and open questions after each exchange.
+
+== Layout ==
+The frame has three zones:
+- Top-left: code files. propose_edit and read_file display here automatically.
+- Bottom-left: the spine (always visible). The human reads the org file here.
+- Right side: this chat.
+
+The spine should always stay visible. When you propose edits or read files, they appear in the top-left code window without displacing the spine.
+
+== Notes ==
+- Conversation history in the gptel buffer is ephemeral. Only the CONVERSATION drawer and the heading body persist.
+- When resuming a conversation, read the conversation drawer to catch up on prior context. The system message is refreshed but the gptel buffer history may not include earlier turns."
   "Base system prompt explaining the naur methodology to the agent."
   :type 'string
   :group 'naur)
@@ -117,23 +178,45 @@ You have tools — use them. Read the spine and code before forming opinions. Ch
                     (window-width . ,naur-chat-window-width)
                     (slot . 0))))
 
+(defvar-local naur--code-window nil
+  "The top-left window for displaying code files.")
+
 (defun naur--setup-layout ()
-  "Set up the naur window layout."
+  "Set up the naur window layout.
+Left side splits horizontally: code (top), spine (bottom).
+Right side: chat window."
   (let ((spine (naur--find-or-create-spine))
         (chat-buf (naur--get-or-create-gptel-buffer)))
     (setq naur--spine-file spine)
     (setq naur--gptel-buffer chat-buf)
+    (delete-other-windows)
     (find-file spine)
+    (let ((spine-win (selected-window))
+          (code-win (split-window-vertically)))
+      (setq naur--code-window code-win)
+      (select-window spine-win))
     (naur--display-chat-buffer chat-buf)
     (with-current-buffer chat-buf
+      (setq-local naur--spine-file spine)
+      (setq-local naur--gptel-buffer chat-buf)
       (when naur-backend
         (setq-local gptel-backend
                     (alist-get naur-backend gptel--known-backends
                                nil nil #'string=)))
       (when naur-model
         (setq-local gptel-model naur-model))
+      (setq-local gptel-confirm-tool-calls nil)
       (naur-activate-tools)
       (naur-fontify-refs))))
+
+(defun naur--display-code-buffer (buffer)
+  "Display BUFFER in the code window (top-left).
+Falls back to a regular display if the code window is gone."
+  (if (and naur--code-window (window-live-p naur--code-window))
+      (progn
+        (set-window-buffer naur--code-window buffer)
+        naur--code-window)
+    (display-buffer buffer '(nil (inhibit-same-window . t)))))
 
 (defun naur--teardown-layout ()
   "Tear down the naur window layout."
@@ -206,10 +289,12 @@ Prepends `naur-base-prompt', then appends the human's current focus."
   (interactive)
   (unless naur--gptel-buffer
     (error "naur-mode not active"))
-  (let* ((ctx (naur--capture-context))
+  (let* ((spine naur--spine-file)
+         (ctx (naur--capture-context))
          (sys-msg (naur--build-system-message ctx)))
     (with-current-buffer naur--gptel-buffer
       (erase-buffer)
+      (setq-local naur--spine-file spine)
       (setq-local gptel--system-message sys-msg)
       (naur-activate-tools))
     (naur--display-chat-buffer naur--gptel-buffer)

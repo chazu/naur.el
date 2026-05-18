@@ -8,6 +8,7 @@
 (require 'naur-context)
 
 (defvar naur--spine-file)
+(declare-function naur--display-code-buffer "naur-layout")
 
 (defun naur--tool-get-context ()
   "Return the current focus context as JSON."
@@ -157,48 +158,38 @@ Creates the drawer if it doesn't exist."
       (format "Appended to CONVERSATION drawer at %s." heading-path))))
 
 (defun naur--tool-propose-edit (file start-line end-line new-content description)
-  "Propose an edit to FILE from START-LINE to END-LINE with NEW-CONTENT.
-DESCRIPTION is shown to the user. Requires human confirmation."
+  "Apply an edit to FILE from START-LINE to END-LINE with NEW-CONTENT.
+Opens the file buffer, applies the change directly, saves, and displays
+it so the human can see the result. No confirmation prompt."
   (let* ((path (expand-file-name file (or (when-let ((proj (project-current)))
                                             (project-root proj))
                                           default-directory)))
-         (original (with-temp-buffer
-                     (insert-file-contents path)
-                     (buffer-string)))
-         (lines (split-string original "\n"))
-         (before (string-join (seq-subseq lines 0 (1- start-line)) "\n"))
-         (after (string-join (seq-subseq lines (min end-line (length lines))) "\n"))
-         (proposed (concat before
-                           (unless (string= before "") "\n")
-                           new-content
-                           (unless (string= after "") "\n")
-                           after))
-         (diff-buf (get-buffer-create "*naur-proposed-edit*")))
-    (with-current-buffer diff-buf
-      (erase-buffer)
-      (insert (format "Proposed edit: %s\n" description))
-      (insert (format "File: %s (lines %d-%d)\n\n" file start-line end-line))
-      (let ((orig-file (make-temp-file "naur-orig"))
-            (new-file (make-temp-file "naur-new")))
-        (unwind-protect
-            (progn
-              (with-temp-file orig-file (insert original))
-              (with-temp-file new-file (insert proposed))
-              (insert (shell-command-to-string
-                       (format "diff -u %s %s" orig-file new-file))))
-          (delete-file orig-file)
-          (delete-file new-file)))
-      (diff-mode)
-      (goto-char (point-min)))
-    (display-buffer diff-buf)
-    (if (yes-or-no-p (format "Accept edit to %s? " file))
-        (progn
-          (with-temp-file path (insert proposed))
-          (kill-buffer diff-buf)
-          "Edit accepted and applied.")
-      (progn
-        (kill-buffer diff-buf)
-        "Edit rejected by user."))))
+         (buf (find-file-noselect path)))
+    (with-current-buffer buf
+      ;; Go to start of target region
+      (goto-char (point-min))
+      (forward-line (1- start-line))
+      (let ((beg (point)))
+        ;; Go to end of target region
+        (if (<= end-line start-line)
+            ;; Single-line or empty range: replace current line
+            (progn (end-of-line) (setq end (point)))
+          (forward-line (- end-line start-line))
+          (end-of-line)
+          (setq end (point)))
+        ;; Apply edit
+        (delete-region beg end)
+        (goto-char beg)
+        (insert new-content)
+        (save-buffer)))
+    (let ((win (naur--display-code-buffer buf)))
+      (when win
+        (with-selected-window win
+          (goto-char (point-min))
+          (forward-line (1- start-line))
+          (recenter 3))))
+    (format "Applied edit to %s (lines %d-%d): %s"
+            file start-line end-line description)))
 
 (defun naur--tool-propose-heading (parent-path title status owner body)
   "Propose a new heading under PARENT-PATH with TITLE, STATUS, OWNER, and BODY.
@@ -333,18 +324,16 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
                '(:name "max_level" :type integer :description "Maximum heading level to include")
                '(:name "status_filter" :type string :description "Only include headings with this STATUS value. Empty string for all."))
    :category "naur")
-
   (gptel-make-tool
    :function #'naur--tool-propose-edit
    :name "propose_edit"
-   :description "Propose a code edit to the human. Shows a diff and requires confirmation before applying."
+   :description "Apply a code edit directly to a file. Opens the file, inserts the change, saves, and displays the buffer so the human sees it. No confirmation required."
    :args (list '(:name "file" :type string :description "File path relative to project root")
                '(:name "start_line" :type integer :description "First line to replace (1-indexed)")
                '(:name "end_line" :type integer :description "Last line to replace (inclusive)")
                '(:name "new_content" :type string :description "New content to replace the specified lines")
                '(:name "description" :type string :description "Brief description of what this edit does"))
-   :category "naur"
-   :confirm t)
+   :category "naur")
 
   (gptel-make-tool
    :function #'naur--tool-propose-heading
