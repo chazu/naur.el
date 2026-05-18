@@ -77,6 +77,58 @@ If STATUS-FILTER is non-nil, only include headings with that STATUS."
                    results))))))
     (json-encode (nreverse results))))
 
+(defun naur--tool-search (pattern file-glob max-results)
+  "Search for PATTERN in project files matching FILE-GLOB.
+Returns up to MAX-RESULTS matches as file:line:content."
+  (let* ((root (or (when-let ((proj (project-current)))
+                     (project-root proj))
+                   default-directory))
+         (max-results (min (or max-results 30) 100))
+         (glob (if (or (null file-glob) (string= "" file-glob))
+                   "*" file-glob))
+         (cmd (format "grep -rn --include=%s -m %d %s %s"
+                      (shell-quote-argument glob)
+                      max-results
+                      (shell-quote-argument pattern)
+                      (shell-quote-argument root)))
+         (output (shell-command-to-string cmd)))
+    (if (string= "" output)
+        (format "No matches for \"%s\" in %s files." pattern glob)
+      (let ((lines (split-string (string-trim output) "\n")))
+        (mapconcat
+         (lambda (line)
+           (if (string-match (concat "^" (regexp-quote root) "/?") line)
+               (substring line (match-end 0))
+             line))
+         lines "\n")))))
+
+(defun naur--tool-read-conversation (heading-path)
+  "Return the CONVERSATION drawer contents at HEADING-PATH, or a message if empty."
+  (let ((spine naur--spine-file))
+    (unless spine
+      (error "No spine file set"))
+    (with-current-buffer (find-file-noselect spine)
+      (org-with-wide-buffer
+       (goto-char (point-min))
+       (let ((path (if (listp heading-path) heading-path
+                     (split-string heading-path "/"))))
+         (dolist (component path)
+           (unless (re-search-forward
+                    (concat "^\\*+ +" (regexp-quote component)) nil t)
+             (error "Heading not found: %s" component))))
+       (let ((end (save-excursion (org-end-of-subtree t t))))
+         (if (re-search-forward "^[ \t]*:CONVERSATION:[ \t]*\n" end t)
+             (let ((start (point)))
+               (if (re-search-forward "^[ \t]*:END:" end t)
+                   (let ((contents (string-trim
+                                    (buffer-substring-no-properties
+                                     start (match-beginning 0)))))
+                     (if (string= "" contents)
+                         "No conversation recorded yet."
+                       contents))
+                 "Malformed CONVERSATION drawer — no :END: found."))
+           "No conversation recorded yet."))))))
+
 (defun naur--tool-propose-edit (file start-line end-line new-content description)
   "Propose an edit to FILE from START-LINE to END-LINE with NEW-CONTENT.
 DESCRIPTION is shown to the user. Requires human confirmation."
@@ -120,6 +172,64 @@ DESCRIPTION is shown to the user. Requires human confirmation."
       (progn
         (kill-buffer diff-buf)
         "Edit rejected by user."))))
+
+(defun naur--tool-propose-heading (parent-path title status owner body)
+  "Propose a new heading under PARENT-PATH with TITLE, STATUS, OWNER, and BODY.
+If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
+  (let ((spine naur--spine-file))
+    (unless spine
+      (error "No spine file set"))
+    (let* ((parent-level
+            (if (or (null parent-path) (string= "" parent-path))
+                0
+              (with-current-buffer (find-file-noselect spine)
+                (org-with-wide-buffer
+                 (goto-char (point-min))
+                 (let ((path (split-string parent-path "/")))
+                   (dolist (component path)
+                     (unless (re-search-forward
+                              (concat "^\\*+ +" (regexp-quote component)) nil t)
+                       (error "Parent heading not found: %s" component))))
+                 (org-current-level)))))
+           (child-level (1+ parent-level))
+           (stars (make-string child-level ?*))
+           (heading-text
+            (concat stars " " title "\n"
+                    ":PROPERTIES:\n"
+                    ":STATUS: " (or status "ideating") "\n"
+                    ":OWNER: " (or owner "both") "\n"
+                    ":END:\n"
+                    (when (and body (not (string= "" body)))
+                      (concat "\n" body "\n"))))
+           (preview-buf (get-buffer-create "*naur-proposed-heading*")))
+      (with-current-buffer preview-buf
+        (erase-buffer)
+        (insert (format "Proposed new heading under: %s\n\n"
+                        (if (string= "" (or parent-path ""))
+                            "(top level)" parent-path)))
+        (insert heading-text)
+        (org-mode)
+        (goto-char (point-min)))
+      (display-buffer preview-buf)
+      (if (yes-or-no-p (format "Add heading \"%s\"? " title))
+          (progn
+            (kill-buffer preview-buf)
+            (with-current-buffer (find-file-noselect spine)
+              (org-with-wide-buffer
+               (if (or (null parent-path) (string= "" parent-path))
+                   (goto-char (point-max))
+                 (goto-char (point-min))
+                 (let ((path (split-string parent-path "/")))
+                   (dolist (component path)
+                     (re-search-forward
+                      (concat "^\\*+ +" (regexp-quote component)) nil t)))
+                 (org-end-of-subtree t t))
+               (unless (bolp) (insert "\n"))
+               (insert heading-text))
+              (save-buffer))
+            (format "Heading \"%s\" added." title))
+        (kill-buffer preview-buf)
+        (format "Heading \"%s\" rejected by user." title)))))
 
 (defun naur--tool-update-heading (heading-path property value)
   "Set PROPERTY to VALUE on the heading at HEADING-PATH."
@@ -165,6 +275,22 @@ DESCRIPTION is shown to the user. Requires human confirmation."
    :category "naur")
 
   (gptel-make-tool
+   :function #'naur--tool-search
+   :name "search"
+   :description "Search for a pattern across project files. Returns matching lines as file:line:content. Use to find symbol definitions, references, or patterns without knowing exact file locations."
+   :args (list '(:name "pattern" :type string :description "Text or regex pattern to search for")
+               '(:name "file_glob" :type string :description "File glob to filter, e.g. \"*.go\" or \"*.el\". Empty string for all files.")
+               '(:name "max_results" :type integer :description "Maximum matches to return (default 30, max 100)"))
+   :category "naur")
+
+  (gptel-make-tool
+   :function #'naur--tool-read-conversation
+   :name "read_conversation"
+   :description "Read the CONVERSATION drawer for a spine heading. Use to catch up on prior decisions and reasoning before resuming work on a heading."
+   :args (list '(:name "heading_path" :type string :description "Slash-separated path to heading, e.g. \"System/API/Auth\""))
+   :category "naur")
+
+  (gptel-make-tool
    :function #'naur--tool-list-headings
    :name "list_headings"
    :description "List org spine headings with their status, owner, and code refs. Use to understand project structure."
@@ -186,6 +312,18 @@ DESCRIPTION is shown to the user. Requires human confirmation."
    :confirm t)
 
   (gptel-make-tool
+   :function #'naur--tool-propose-heading
+   :name "propose_heading"
+   :description "Propose a new heading in the spine. Shows a preview and requires human confirmation. Use to suggest new components, subsystems, or design sections as the architecture evolves."
+   :args (list '(:name "parent_path" :type string :description "Slash-separated path to parent heading, e.g. \"System/API\". Empty string for top-level.")
+               '(:name "title" :type string :description "Title for the new heading")
+               '(:name "status" :type string :description "Initial STATUS: ideating, specified, implementing, integrated, or revised")
+               '(:name "owner" :type string :description "OWNER: human, agent, or both")
+               '(:name "body" :type string :description "Body text for the heading — design notes, constraints, interface sketches"))
+   :category "naur"
+   :confirm t)
+
+  (gptel-make-tool
    :function #'naur--tool-update-heading
    :name "update_heading"
    :description "Update a property on an org spine heading. Use to track progress (STATUS, OWNER, CODE_REF)."
@@ -200,8 +338,11 @@ DESCRIPTION is shown to the user. Requires human confirmation."
               (list (gptel-get-tool '("naur" "get_context"))
                     (gptel-get-tool '("naur" "read_file"))
                     (gptel-get-tool '("naur" "read_heading"))
+                    (gptel-get-tool '("naur" "search"))
+                    (gptel-get-tool '("naur" "read_conversation"))
                     (gptel-get-tool '("naur" "list_headings"))
                     (gptel-get-tool '("naur" "propose_edit"))
+                    (gptel-get-tool '("naur" "propose_heading"))
                     (gptel-get-tool '("naur" "update_heading")))))
 
 (provide 'naur-tools)

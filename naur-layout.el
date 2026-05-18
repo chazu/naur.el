@@ -13,6 +13,7 @@
 (declare-function naur-set-code-ref "naur-nav")
 (declare-function naur-cycle-status "naur-org")
 (declare-function naur-agenda "naur-org")
+(declare-function naur-archive-conversation "naur-org")
 (declare-function naur-register-tools "naur-tools")
 
 (defgroup naur nil
@@ -28,6 +29,39 @@
 (defcustom naur-chat-window-width 0.35
   "Width of the chat side window as a fraction of frame width."
   :type 'float
+  :group 'naur)
+
+(defcustom naur-backend nil
+  "gptel backend for naur chat. Nil uses gptel default."
+  :type '(choice (const :tag "Use gptel default" nil)
+                 (string :tag "Backend name"))
+  :group 'naur)
+
+(defcustom naur-model nil
+  "gptel model for naur chat. Nil uses gptel default."
+  :type '(choice (const :tag "Use gptel default" nil)
+                 (string :tag "Model name"))
+  :group 'naur)
+
+(defcustom naur-archive-summarize t
+  "When non-nil, summarize conversation via LLM when archiving.
+Use \\[universal-argument] with `naur-archive-conversation' to invert."
+  :type 'boolean
+  :group 'naur)
+
+(defcustom naur-base-prompt
+  "You are a co-authoring agent working with a human through an org-mode design document called the \"spine.\" Think of the spine as a dialectical C4 diagram — a system architecture that emerges and sharpens through conversation rather than being drawn up front.
+
+Your primary job is helping the human build a mental model of the system. Code is a byproduct of understanding, not a substitute for it. Before proposing implementation, make sure the design at that level is clear — if the human couldn't explain what a function does before seeing it, you've moved too fast.
+
+Work through the spine. Headings represent system boundaries at whatever granularity the project needs. Each heading carries properties:
+- STATUS: ideating → specified → implementing → integrated → revised
+- OWNER: human (you advise), agent (you drive but explain), both (true collaboration)
+- CODE_REF: links between design and implementation (file::lines or file::symbol)
+
+Go deep before going wide — one heading at a time, fully understood, before moving on. Keep the spine truthful: when code drifts from what a heading describes, flag it. Put your reasoning in CONVERSATION drawers; keep heading bodies for design facts that outlast any single conversation."
+  "Base system prompt explaining the naur methodology to the agent."
+  :type 'string
   :group 'naur)
 
 (defvar-local naur--spine-file nil
@@ -69,7 +103,8 @@
                            (directory-file-name (naur--project-root))))))
     (or (get-buffer buf-name)
         (with-current-buffer (get-buffer-create buf-name)
-          (gptel-mode)
+          (org-mode)
+          (gptel-mode 1)
           (current-buffer)))))
 
 (defun naur--display-chat-buffer (buffer)
@@ -89,6 +124,12 @@
     (find-file spine)
     (naur--display-chat-buffer chat-buf)
     (with-current-buffer chat-buf
+      (when naur-backend
+        (setq-local gptel-backend
+                    (alist-get naur-backend gptel--known-backends
+                               nil nil #'string=)))
+      (when naur-model
+        (setq-local gptel-model naur-model))
       (naur-activate-tools)
       (naur-fontify-refs))))
 
@@ -114,6 +155,7 @@
     (define-key map (kbd "C-c n r") #'naur-set-code-ref)
     (define-key map (kbd "C-c n c") #'naur-cycle-status)
     (define-key map (kbd "C-c n a") #'naur-agenda)
+    (define-key map (kbd "C-c n A") #'naur-archive-conversation)
     (define-key map (kbd "C-c n s") #'naur-start-agent)
     (define-key map (kbd "C-c n l") #'naur-resume-conversation)
     map)
@@ -135,31 +177,52 @@
   (interactive)
   (naur-mode 1))
 
+(defun naur--build-system-message (ctx)
+  "Build a system message string from context alist CTX.
+Prepends `naur-base-prompt', then appends the human's current focus."
+  (let ((focus-parts nil))
+    (when-let ((heading (alist-get :heading ctx)))
+      (push (format "- Org heading: %s" heading) focus-parts))
+    (when-let ((path (alist-get :heading-path ctx)))
+      (push (format "- Outline path: %s" (string-join path " > ")) focus-parts))
+    (when-let ((status (alist-get :status ctx)))
+      (push (format "- Status: %s" status) focus-parts))
+    (when-let ((file (alist-get :file ctx)))
+      (push (format "- File: %s (line %d)" file (or (alist-get :line ctx) 0)) focus-parts))
+    (when-let ((region (alist-get :region ctx)))
+      (push (format "- Selected text:\n%s" region) focus-parts))
+    (when-let ((code-ref (alist-get :code-ref ctx)))
+      (push (format "- CODE_REF: %s" code-ref) focus-parts))
+    (if focus-parts
+        (concat naur-base-prompt
+                "\n\nThe human's current focus:\n"
+                (string-join (nreverse focus-parts) "\n"))
+      naur-base-prompt)))
+
 (defun naur-start-agent ()
-  "Start a new agent conversation with current context."
+  "Start a new agent conversation with current context injected as system message."
   (interactive)
   (unless naur--gptel-buffer
     (error "naur-mode not active"))
-  (let ((ctx (naur--capture-context)))
-    (naur--display-chat-buffer naur--gptel-buffer)
+  (let* ((ctx (naur--capture-context))
+         (sys-msg (naur--build-system-message ctx)))
     (with-current-buffer naur--gptel-buffer
-      (goto-char (point-max))
-      (unless (bobp) (insert "\n\n"))
-      (insert (format "--- New conversation ---\nContext: %s\n\n"
-                      (naur--context-to-json ctx))))
+      (erase-buffer)
+      (setq-local gptel--system-message sys-msg)
+      (naur-activate-tools))
+    (naur--display-chat-buffer naur--gptel-buffer)
     (select-window (get-buffer-window naur--gptel-buffer))))
 
 (defun naur-resume-conversation ()
-  "Resume the last conversation with refreshed context."
+  "Resume the last conversation with refreshed context as system message."
   (interactive)
   (unless naur--gptel-buffer
     (error "naur-mode not active"))
-  (let ((ctx (naur--capture-context)))
-    (naur--display-chat-buffer naur--gptel-buffer)
+  (let* ((ctx (naur--capture-context))
+         (sys-msg (naur--build-system-message ctx)))
     (with-current-buffer naur--gptel-buffer
-      (goto-char (point-max))
-      (insert (format "\n\n[Resuming — current context: %s]\n\n"
-                      (naur--context-to-json ctx))))
+      (setq-local gptel--system-message sys-msg))
+    (naur--display-chat-buffer naur--gptel-buffer)
     (select-window (get-buffer-window naur--gptel-buffer))))
 
 (provide 'naur-layout)
