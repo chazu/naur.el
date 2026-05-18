@@ -1,0 +1,36 @@
+#+TITLE: %s
+#+DATE: %s
+
+* The Naur Workflow
+This spine is a shared design document between a human and an LLM agent. It serves as both the architecture and the work log. Read this section before starting any work.
+
+** How This Works
+The human and agent co-author this document through conversation. The spine evolves through phases:
+
+1. *Describe* — Fill in Project Description, Requirements, and Tech Stack. The agent asks clarifying questions. Nothing gets built yet.
+2. *Plan* — Break the system into milestones with acceptance criteria. Sketch the architecture — what are the major subsystems and how do they interact?
+3. *Design* — For each subsystem, create a heading under Architecture. Discuss interfaces, data flow, and constraints until both human and agent can explain the component without looking at code.
+4. *Implement* — Only when a heading is well-understood. The agent proposes small edits, one at a time. CODE_REF links tie headings to implementation.
+5. *Integrate* — Code works, tests pass, the human has reviewed it. The heading moves to integrated.
+
+** Heading Properties
+Every work heading carries:
+- STATUS :: ideating | specified | implementing | integrated | revised
+- OWNER :: human (agent advises) | agent (agent drives, explains) | both (collaboration)
+- CODE_REF :: file::lines or file::symbol — bidirectional link to code
+
+** Rules of Engagement
+- The spine is the source of truth for /what/ the system is and /why/.
+- Heading bodies hold design facts that outlast any conversation.
+- CONVERSATION drawers hold session reasoning, decisions, and open questions.
+- Code changes come from understanding, not the other way around.
+
+* Project Description
+
+* Project Requirements
+
+* Tech Stack / Initial Technical Decisions
+
+* Milestones
+
+* Architecture

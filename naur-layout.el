@@ -59,6 +59,9 @@ Your primary job is helping the human build a mental model of the system. Code i
 
 Go deep before going wide — one heading at a time, fully understood, before moving on. Keep the spine truthful: when code drifts from what a heading describes, flag it.
 
+== Brevity ==
+Keep responses short — 2-4 sentences unless the human asks for detail. Ask one question at a time. If you need to explain a tradeoff, use a short list, not paragraphs. Let the spine hold the long-form design writing, not the chat.
+
 == Conversational Discipline ==
 This is a conversation, not a task queue. You are a collaborator, not an executor.
 
@@ -76,28 +79,37 @@ When reading tools (get_context, read_heading, list_headings, search, read_file,
 When writing tools (propose_edit, propose_heading, update_heading, append_conversation): always explain what you're about to do first. One edit per turn. Wait for feedback before continuing.
 
 == Spine Structure ==
-The spine typically has two zones:
+The spine has a standard layout. Read \"The Naur Workflow\" heading at the top of the spine — it explains the methodology for both you and the human.
 
-1. Design sections — stable reference material: Requirements, Non-requirements, Invariants, Tech decisions, Constraints. These change rarely and should be treated as ground truth.
+Top-level sections:
+- The Naur Workflow — reference material on how this process works. Read it first.
+- Project Description — what the system is and who it's for.
+- Project Requirements — what must be true for the project to succeed.
+- Tech Stack / Initial Technical Decisions — chosen technologies and why.
+- Milestones — concrete goals with acceptance criteria. Work flows from here.
+- Architecture — major subsystems and how they interact. You add sub-headings here as design solidifies.
 
-2. A work subtree — where iterative design and implementation happen. Headings here represent system boundaries at whatever granularity the project needs. Each work heading carries:
+The first four sections are stable reference — the human fills these in early and they change rarely. Milestones and Architecture are where iterative work happens.
+
+Each work heading carries:
 - STATUS: ideating → specified → implementing → integrated → revised
 - OWNER: human (you advise), agent (you drive but explain), both (true collaboration)
 - CODE_REF: links between design and implementation (file::lines or file::symbol)
 
-Heading depth roughly signals abstraction — deeper headings are finer-grained boundaries. But this is emergent, not rigid. Don't force a C4 structure.
+Heading depth roughly signals abstraction — deeper headings are finer-grained. But this is emergent, not rigid.
 
 == Operational Workflow ==
-First turn checklist:
+
+CRITICAL — Orientation Gate:
+On your very first response in any session, you MUST complete the checklist below BEFORE addressing the human's question or request. Do not answer, analyze, or suggest until you have called the required tools.
+
+Orientation checklist:
 1. get_context — understand where the human is
 2. If in the spine: read_heading on the current path, then read_conversation
 3. If in code: read the code at point, then find the matching heading in the spine
 4. Only then respond or propose
 
 Per-status behavior:
-- ideating: Ask clarifying questions. Propose headings to capture emerging structure.
-- specified: Validate understanding with the human before touching code. Check invariants and constraints.
-- implementing: Describe the edit you want to make, wait for agreement, then apply ONE edit via propose_edit. Update CODE_REF after changes land.
 - integrated: Only revisit if the human asks, or if you spot drift.
 - revised: Treat as implementing but check the conversation drawer for prior decisions.
 
@@ -145,6 +157,33 @@ The spine should always stay visible. When you propose edits or read files, they
   "Return the naur directory for the current project."
   (expand-file-name naur-directory (naur--project-root)))
 
+(defun naur--template-path ()
+  "Return the path to the spine template file."
+  (expand-file-name "spine-template.org"
+                    (file-name-directory (locate-library "naur"))))
+
+(defun naur--seed-spine (path)
+  "Populate a new spine at PATH from the template."
+  (let ((template (naur--template-path))
+        (project-name (file-name-nondirectory
+                       (directory-file-name (naur--project-root)))))
+    (if (and template (file-exists-p template))
+        (with-temp-file path
+          (insert-file-contents template)
+          (goto-char (point-min))
+          (while (search-forward "%s" nil t)
+            (replace-match
+             (if (save-excursion
+                   (beginning-of-line)
+                   (looking-at "#\\+TITLE:"))
+                 project-name
+               (format-time-string "%Y-%m-%d"))
+             t t)))
+      (with-temp-file path
+        (insert (format "#+TITLE: %s\n#+DATE: %s\n\n* Architecture\n"
+                        project-name
+                        (format-time-string "%Y-%m-%d")))))))
+
 (defun naur--find-or-create-spine ()
   "Find an existing spine file or prompt to create one."
   (let* ((dir (naur--naur-dir))
@@ -158,8 +197,10 @@ The spine should always stay visible. When you propose edits or read files, they
      (t
       (unless (file-directory-p dir)
         (make-directory dir t))
-      (let ((name (read-string "New spine file name: " "spine.org")))
-        (expand-file-name name dir))))))
+      (let* ((name (read-string "New spine file name: " "spine.org"))
+             (path (expand-file-name name dir)))
+        (naur--seed-spine path)
+        path)))))
 
 (defun naur--get-or-create-gptel-buffer ()
   "Get or create the gptel chat buffer for this naur session."
@@ -314,7 +355,43 @@ Prepends `naur-base-prompt', then appends the human's current focus."
     (with-current-buffer naur--gptel-buffer
       (setq-local gptel--system-message sys-msg))
     (naur--display-chat-buffer naur--gptel-buffer)
-    (select-window (get-buffer-window naur--gptel-buffer))))
+    (select-window (get-buffer-window naur--gptel-buffer))
+    (when naur-auto-orient
+      (naur--auto-orient))))
+
+;; ── Auto-orientation ─────────────────────────────────────────────
+
+(defcustom naur-auto-orient t
+  "When non-nil, automatically send an orientation prompt on startup/resume.
+The agent orients itself via tool calls before the human types."
+  :type 'boolean
+  :group 'naur)
+
+(defun naur--auto-orient ()
+  "Send an orientation prompt so the agent reads context before the human types.
+The LLM is expected to call get_context, read_heading, and
+read_conversation before producing its summary."
+  (when-let ((buf naur--gptel-buffer))
+    (with-current-buffer buf
+      (goto-char (point-max))
+      (unless (bolp) (insert "\n"))
+      (insert "* naur: orientation\n\n")
+      (let ((prompt
+             "Use the get_context tool, then read_heading on the current heading path, then read_conversation. Summarize: what is the current work boundary, its status and owner, and any prior decisions or open questions. Say nothing else — just summarize and wait."))
+        (message "Sending auto-orientation...")
+        (gptel-request
+         prompt
+         :callback
+         (lambda (response info)
+           (if (stringp response)
+               (progn
+                 (with-current-buffer buf
+                   (goto-char (point-max))
+                   (insert response "\n\n")
+                   (insert "────────────────────────\n\n"))
+                 (message "Auto-orientation complete."))
+             (message "Auto-orientation failed: %s"
+                      (or (plist-get info :status) "unknown")))))))))
 
 (provide 'naur-layout)
 ;;; naur-layout.el ends here
