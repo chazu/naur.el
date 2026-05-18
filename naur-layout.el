@@ -14,6 +14,8 @@
 (declare-function naur-cycle-status "naur-org")
 (declare-function naur-agenda "naur-org")
 (declare-function naur-archive-conversation "naur-org")
+(declare-function naur-fold-mode-setup "naur-fold")
+(declare-function naur-fold-toggle-at-point "naur-fold")
 (declare-function naur-register-tools "naur-tools")
 
 (defgroup naur nil
@@ -207,7 +209,8 @@ Right side: chat window."
         (setq-local gptel-model naur-model))
       (setq-local gptel-confirm-tool-calls nil)
       (naur-activate-tools)
-      (naur-fontify-refs))))
+      (naur-fontify-refs)
+      (naur-fold-mode-setup))))
 
 (defun naur--display-code-buffer (buffer)
   "Display BUFFER in the code window (top-left).
@@ -241,6 +244,7 @@ Falls back to a regular display if the code window is gone."
     (define-key map (kbd "C-c n c") #'naur-cycle-status)
     (define-key map (kbd "C-c n a") #'naur-agenda)
     (define-key map (kbd "C-c n A") #'naur-archive-conversation)
+    (define-key map (kbd "C-c n f") #'naur-fold-toggle-at-point)
     (define-key map (kbd "C-c n s") #'naur-start-agent)
     (define-key map (kbd "C-c n l") #'naur-resume-conversation)
     map)

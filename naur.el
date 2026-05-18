@@ -19,6 +19,7 @@
 (require 'naur-tools)
 (require 'naur-nav)
 (require 'naur-org)
+(require 'naur-fold)
 
 ;;;###autoload
 (defun naur-setup ()
