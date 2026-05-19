@@ -313,7 +313,9 @@ Falls back to a regular display if the code window is gone."
   :keymap naur-mode-map
   :group 'naur
   (if naur-mode
-      (naur--setup-layout)
+      (progn
+        (naur--setup-layout)
+        (naur-start-agent))
     (naur--teardown-layout)))
 
 ;;;###autoload
