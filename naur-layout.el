@@ -121,18 +121,27 @@ Per-status behavior:
 == Tools ==
 - read_heading / list_headings: Use to understand structure before acting.
 - read_file / search: Use to read code before proposing changes. Never ask the human to paste code.
-- propose_edit: Apply an edit directly to a file, then display the buffer so the human sees the change. No confirmation step. Always include a clear description.
+- propose_edit: Apply an edit directly to a file, then display the buffer so the human sees the change. No confirmation step. Always include a clear description. Always save the file after editing.
 - propose_heading: Use when a new system boundary emerges. Shows a preview and requires confirmation.
 - update_heading: Use to track progress (STATUS, OWNER, CODE_REF).
 - append_conversation: Record key decisions and open questions after each exchange.
 
-== Layout ==
-The frame has three zones:
-- Top-left: code files. propose_edit and read_file display here automatically.
-- Bottom-left: the spine (always visible). The human reads the org file here.
-- Right side: this chat.
+== File Discipline ==
+ONLY CHANGE ONE FILE AT A TIME unless the human explicitly asks otherwise.
 
-The spine should always stay visible. When you propose edits or read files, they appear in the top-left code window without displacing the spine.
+Before editing a file:
+1. Use read_file to open the file in the left window, showing the lines you plan to change.
+2. Explain what you're about to change and why.
+3. Wait for the human to agree.
+4. Apply the edit with propose_edit (which displays the result and saves the file).
+5. Wait for feedback before touching another file.
+
+== Layout ==
+The frame has two zones:
+- Left: one file at a time (spine, code, whatever is relevant). read_file and propose_edit display here automatically.
+- Right: this chat.
+
+The left window shows whatever file is currently being discussed or edited. The human can switch back to the spine manually at any time.
 
 == Notes ==
 - Conversation history in the gptel buffer is ephemeral. Only the CONVERSATION drawer and the heading body persist.
@@ -236,27 +245,24 @@ next to the loaded file, and in straight's repos directory."
                     (window-width . ,naur-chat-window-width)
                     (slot . 0))))
 
-(defvar-local naur--code-window nil
-  "The top-left window for displaying code files.")
+(defvar-local naur--left-window nil
+  "The left window for displaying files (spine, code, etc).")
 
 (defun naur--setup-layout ()
   "Set up the naur window layout.
-Left side splits horizontally: code (top), spine (bottom).
-Right side: chat window."
+Left side: file window (starts with spine). Right side: chat window."
   (let ((spine (naur--find-or-create-spine))
         (chat-buf (naur--get-or-create-gptel-buffer)))
     (setq naur--spine-file spine)
     (setq naur--gptel-buffer chat-buf)
     (delete-other-windows)
     (find-file spine)
-    (let ((spine-win (selected-window))
-          (code-win (split-window-vertically)))
-      (setq naur--code-window code-win)
-      (select-window spine-win))
+    (setq naur--left-window (selected-window))
     (naur--display-chat-buffer chat-buf)
     (with-current-buffer chat-buf
       (setq-local naur--spine-file spine)
       (setq-local naur--gptel-buffer chat-buf)
+      (setq-local naur--left-window naur--left-window)
       (when naur-backend
         (setq-local gptel-backend
                     (alist-get naur-backend gptel--known-backends
@@ -269,12 +275,12 @@ Right side: chat window."
       (naur-fold-mode-setup))))
 
 (defun naur--display-code-buffer (buffer)
-  "Display BUFFER in the code window (top-left).
-Falls back to a regular display if the code window is gone."
-  (if (and naur--code-window (window-live-p naur--code-window))
+  "Display BUFFER in the left window.
+Falls back to a regular display if the left window is gone."
+  (if (and naur--left-window (window-live-p naur--left-window))
       (progn
-        (set-window-buffer naur--code-window buffer)
-        naur--code-window)
+        (set-window-buffer naur--left-window buffer)
+        naur--left-window)
     (display-buffer buffer '(nil (inhibit-same-window . t)))))
 
 (defun naur--teardown-layout ()
