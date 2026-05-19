@@ -75,6 +75,8 @@ Per-status behavior:
 - `propose_heading`: Use when a new system boundary emerges. Shows a preview and requires confirmation.
 - `update_heading`: Use to track progress (STATUS, OWNER, CODE_REF).
 - `append_conversation`: Record key decisions and open questions after each exchange.
+- `open_file`: Open a file in the left pane at a specific line without returning contents. Use when you want to show the human something.
+- `eval_elisp`: Evaluate arbitrary Emacs Lisp. Powerful — use for inspecting state or running commands not covered by other tools. May require human confirmation.
 
 ## File Discipline
 

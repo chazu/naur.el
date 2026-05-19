@@ -273,6 +273,34 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
        (save-buffer))
       (format "Set %s = %s" property value))))
 
+(defvar naur-confirm-eval)
+
+(defun naur--tool-open-file (file line)
+  "Open FILE in the left pane and go to LINE.
+Does not return file contents — use read_file for that."
+  (let* ((root (or (when-let ((proj (project-current)))
+                     (project-root proj))
+                   default-directory))
+         (path (expand-file-name file root))
+         (buf (find-file-noselect path)))
+    (unless (file-exists-p path)
+      (error "File not found: %s" file))
+    (let ((win (naur--display-code-buffer buf)))
+      (when win
+        (with-selected-window win
+          (goto-char (point-min))
+          (when (and line (> line 0))
+            (forward-line (1- line)))
+          (recenter 3))))
+    (format "Opened %s at line %d" file (or line 1))))
+
+(defun naur--tool-eval-elisp (expression)
+  "Evaluate EXPRESSION as Emacs Lisp and return the result as a string."
+  (condition-case err
+      (let ((result (eval (car (read-from-string expression)) t)))
+        (format "%S" result))
+    (error (format "Error: %S" err))))
+
 (defun naur-register-tools ()
   "Register all naur tools with gptel."
   (gptel-make-tool
@@ -360,7 +388,23 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
    :args (list '(:name "heading_path" :type string :description "Slash-separated path to heading")
                '(:name "property" :type string :description "Property name: STATUS, OWNER, or CODE_REF")
                '(:name "value" :type string :description "New value for the property"))
-   :category "naur"))
+   :category "naur")
+
+  (gptel-make-tool
+   :function #'naur--tool-open-file
+   :name "open_file"
+   :description "Open a file in the left pane without returning its contents. Use to show the human a file at a specific line. Use read_file instead if you need to see the contents."
+   :args (list '(:name "file" :type string :description "File path relative to project root")
+               '(:name "line" :type integer :description "Line number to jump to (1-indexed, 0 or omit for top)"))
+   :category "naur")
+
+  (gptel-make-tool
+   :function #'naur--tool-eval-elisp
+   :name "eval_elisp"
+   :description "Evaluate an Emacs Lisp expression and return the result. Use for inspecting buffer state, running commands, or any Emacs operation not covered by other tools. Powerful but potentially destructive — use carefully."
+   :args (list '(:name "expression" :type string :description "Emacs Lisp expression to evaluate"))
+   :category "naur"
+   :confirm naur-confirm-eval))
 
 (defun naur-activate-tools ()
   "Activate naur tools in the current gptel buffer."
@@ -374,7 +418,9 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
                     (gptel-get-tool '("naur" "list_headings"))
                     (gptel-get-tool '("naur" "apply_edit"))
                     (gptel-get-tool '("naur" "propose_heading"))
-                    (gptel-get-tool '("naur" "update_heading")))))
+                    (gptel-get-tool '("naur" "update_heading"))
+                    (gptel-get-tool '("naur" "open_file"))
+                    (gptel-get-tool '("naur" "eval_elisp")))))
 
 (provide 'naur-tools)
 ;;; naur-tools.el ends here

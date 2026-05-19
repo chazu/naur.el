@@ -45,6 +45,11 @@
                  (string :tag "Model name"))
   :group 'naur)
 
+(defcustom naur-confirm-eval t
+  "When non-nil, require human confirmation before executing eval_elisp tool calls."
+  :type 'boolean
+  :group 'naur)
+
 (defcustom naur-archive-summarize t
   "When non-nil, summarize conversation via LLM when archiving.
 Use \\[universal-argument] with `naur-archive-conversation' to invert."
