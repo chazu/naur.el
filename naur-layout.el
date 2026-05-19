@@ -117,7 +117,10 @@ Set this to override with a custom string."
 
 (defun naur--seed-spine (path)
   "Populate a new spine at PATH from the template.
-Also copies AGENTS.md to project root if not already present."
+Also copies AGENTS.md to project root if not already present.
+Refuses to overwrite an existing file."
+  (when (file-exists-p path)
+    (error "Spine already exists at %s — refusing to overwrite" path))
   (let ((template (naur--template-path))
         (project-name (file-name-nondirectory
                        (directory-file-name (naur--project-root)))))
