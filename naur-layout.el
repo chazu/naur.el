@@ -358,7 +358,9 @@ Prepends `naur-base-prompt', then appends the human's current focus."
       (setq-local gptel--system-message sys-msg)
       (naur-activate-tools))
     (naur--display-chat-buffer naur--gptel-buffer)
-    (select-window (get-buffer-window naur--gptel-buffer))))
+    (select-window (get-buffer-window naur--gptel-buffer))
+    (when naur-auto-orient
+      (naur--auto-orient))))
 
 (defun naur-resume-conversation ()
   "Resume the last conversation with refreshed context as system message."
