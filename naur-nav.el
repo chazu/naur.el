@@ -6,6 +6,21 @@
 (require 'project)
 
 (defvar naur--spine-file)
+(defvar naur-directory)
+
+(declare-function naur--project-root "naur-layout")
+(declare-function naur--naur-dir "naur-layout")
+
+(defun naur--resolve-spine-file ()
+  "Return the spine file: buffer-local value, or find one in naur/ directory."
+  (or naur--spine-file
+      (let* ((dir (naur--naur-dir))
+             (files (and (file-directory-p dir)
+                         (directory-files dir t "\\.org$"))))
+        (cond
+         ((and files (= 1 (length files))) (car files))
+         (files (completing-read "Spine file: " files nil t))
+         (t (error "No spine file found in %s" dir))))))
 
 (defun naur--parse-code-ref (ref)
   "Parse a CODE_REF string into (file start end) or (file symbol).
@@ -80,9 +95,7 @@ Uses active region for line range, or current line."
 
 (defun naur--set-ref-on-spine (ref)
   "Set REF as CODE_REF on a spine heading. Prompts for which heading."
-  (let ((spine naur--spine-file))
-    (unless spine
-      (error "No spine file set"))
+  (let ((spine (naur--resolve-spine-file)))
     (let ((headings (naur--collect-heading-titles spine)))
       (unless headings
         (error "No headings in spine"))

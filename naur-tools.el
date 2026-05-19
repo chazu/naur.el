@@ -15,12 +15,21 @@
   (naur--context-to-json (naur--capture-context)))
 
 (defun naur--tool-read-file (file start-line end-line)
-  "Return contents of FILE from START-LINE to END-LINE."
-  (let ((path (expand-file-name file (or (when-let ((proj (project-current)))
-                                           (project-root proj))
-                                         default-directory))))
+  "Return contents of FILE from START-LINE to END-LINE.
+Also opens the file in the left pane so the human sees it."
+  (let* ((root (or (when-let ((proj (project-current)))
+                     (project-root proj))
+                   default-directory))
+         (path (expand-file-name file root))
+         (buf (find-file-noselect path)))
     (unless (file-exists-p path)
       (error "File not found: %s" file))
+    (let ((win (naur--display-code-buffer buf)))
+      (when win
+        (with-selected-window win
+          (goto-char (point-min))
+          (forward-line (1- (max 1 start-line)))
+          (recenter 3))))
     (with-temp-buffer
       (insert-file-contents path)
       (let* ((start (max 1 start-line))
@@ -157,7 +166,7 @@ Creates the drawer if it doesn't exist."
       (save-buffer)
       (format "Appended to CONVERSATION drawer at %s." heading-path))))
 
-(defun naur--tool-propose-edit (file start-line end-line new-content description)
+(defun naur--tool-apply-edit (file start-line end-line new-content description)
   "Apply an edit to FILE from START-LINE to END-LINE with NEW-CONTENT.
 Opens the file buffer, applies the change directly, saves, and displays
 it so the human can see the result. No confirmation prompt."
@@ -166,18 +175,15 @@ it so the human can see the result. No confirmation prompt."
                                           default-directory)))
          (buf (find-file-noselect path)))
     (with-current-buffer buf
-      ;; Go to start of target region
       (goto-char (point-min))
       (forward-line (1- start-line))
-      (let ((beg (point)))
-        ;; Go to end of target region
-        (if (<= end-line start-line)
-            ;; Single-line or empty range: replace current line
-            (progn (end-of-line) (setq end (point)))
-          (forward-line (- end-line start-line))
-          (end-of-line)
-          (setq end (point)))
-        ;; Apply edit
+      (let* ((beg (point))
+             (end (progn
+                    (if (<= end-line start-line)
+                        (end-of-line)
+                      (forward-line (- end-line start-line))
+                      (end-of-line))
+                    (point))))
         (delete-region beg end)
         (goto-char beg)
         (insert new-content)
@@ -325,8 +331,8 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
                '(:name "status_filter" :type string :description "Only include headings with this STATUS value. Empty string for all."))
    :category "naur")
   (gptel-make-tool
-   :function #'naur--tool-propose-edit
-   :name "propose_edit"
+   :function #'naur--tool-apply-edit
+   :name "apply_edit"
    :description "Apply a code edit directly to a file. Opens the file, inserts the change, saves, and displays the buffer so the human sees it. No confirmation required."
    :args (list '(:name "file" :type string :description "File path relative to project root")
                '(:name "start_line" :type integer :description "First line to replace (1-indexed)")
@@ -366,7 +372,7 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
                     (gptel-get-tool '("naur" "read_conversation"))
                     (gptel-get-tool '("naur" "append_conversation"))
                     (gptel-get-tool '("naur" "list_headings"))
-                    (gptel-get-tool '("naur" "propose_edit"))
+                    (gptel-get-tool '("naur" "apply_edit"))
                     (gptel-get-tool '("naur" "propose_heading"))
                     (gptel-get-tool '("naur" "update_heading")))))
 
