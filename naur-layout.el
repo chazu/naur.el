@@ -392,23 +392,9 @@ read_conversation before producing its summary."
     (with-current-buffer buf
       (goto-char (point-max))
       (unless (bolp) (insert "\n"))
-      (insert "* naur: orientation\n\n")
-      (let ((prompt
-             "Use the get_context tool, then read_heading on the current heading path, then read_conversation. Summarize: what is the current work boundary, its status and owner, and any prior decisions or open questions. Say nothing else — just summarize and wait."))
-        (message "Sending auto-orientation...")
-        (gptel-request
-         prompt
-         :callback
-         (lambda (response info)
-           (if (stringp response)
-               (progn
-                 (with-current-buffer buf
-                   (goto-char (point-max))
-                   (insert response "\n\n")
-                   (insert "────────────────────────\n\n"))
-                 (message "Auto-orientation complete."))
-             (message "Auto-orientation failed: %s"
-                      (or (plist-get info :status) "unknown")))))))))
+      (insert "Use the get_context tool, then read_heading on the current heading path, then read_conversation. Summarize: what is the current work boundary, its status and owner, and any prior decisions or open questions. Say nothing else — just summarize and wait.")
+      (message "Sending auto-orientation...")
+      (gptel-send))))
 
 (provide 'naur-layout)
 ;;; naur-layout.el ends here
