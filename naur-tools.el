@@ -234,7 +234,7 @@ If PARENT-PATH is empty, inserts at end of spine. Requires human confirmation."
         (insert heading-text)
         (org-mode)
         (goto-char (point-min)))
-      (display-buffer preview-buf)
+      (naur--display-code-buffer preview-buf)
       (if (yes-or-no-p (format "Add heading \"%s\"? " title))
           (progn
             (kill-buffer preview-buf)

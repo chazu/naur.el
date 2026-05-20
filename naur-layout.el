@@ -224,13 +224,14 @@ Left side: file window (starts with spine). Right side: chat window."
                 #'naur--refresh-context-on-send nil t))))
 
 (defun naur--display-code-buffer (buffer)
-  "Display BUFFER in the left window.
-Falls back to a regular display if the left window is gone."
-  (if (and naur--left-window (window-live-p naur--left-window))
-      (progn
-        (set-window-buffer naur--left-window buffer)
-        naur--left-window)
-    (display-buffer buffer '(nil (inhibit-same-window . t)))))
+  "Display BUFFER in the left window, replacing whatever is there.
+If the left window is gone, reclaim the largest non-side window."
+  (unless (and naur--left-window (window-live-p naur--left-window))
+    (setq naur--left-window
+          (or (get-largest-window nil nil t)
+              (selected-window))))
+  (set-window-buffer naur--left-window buffer)
+  naur--left-window)
 
 (defun naur--teardown-layout ()
   "Tear down the naur window layout."
