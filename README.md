@@ -26,27 +26,27 @@ Then in your config:
 
 ## Usage
 
-1. `M-x naur-mode` (or `C-c n n`) in any project buffer
+1. `M-x naur-mode` (or `C-c z n`) in any project buffer
 2. naur finds or creates a spine file in `naur/` at the project root
 3. Layout opens: spine/code on the left, gptel chat on the right
 4. The agent auto-orients by reading context, then waits for your prompt
 
 ## Key Bindings
 
-All under the `C-c n` prefix when `naur-mode` is active:
+All under the `C-c z` prefix when `naur-mode` is active:
 
 | Key       | Command                     | Context    |
 |-----------|-----------------------------|------------|
-| `C-c n n` | Activate naur-mode          | global     |
-| `C-c n t` | Toggle chat window          | naur-mode  |
-| `C-c n g` | Go to CODE_REF at point     | org buffer |
-| `C-c n r` | Set CODE_REF from here      | code buffer|
-| `C-c n c` | Cycle STATUS                | org buffer |
-| `C-c n a` | Show naur agenda            | global     |
-| `C-c n A` | Archive conversation        | org buffer |
-| `C-c n f` | Toggle fold at point        | chat buffer|
-| `C-c n s` | Start agent conversation    | naur-mode  |
-| `C-c n l` | Resume last conversation    | naur-mode  |
+| `C-c z n` | Activate naur-mode          | global     |
+| `C-c z t` | Toggle chat window          | naur-mode  |
+| `C-c z g` | Go to CODE_REF at point     | org buffer |
+| `C-c z r` | Set CODE_REF from here      | code buffer|
+| `C-c z c` | Cycle STATUS                | org buffer |
+| `C-c z a` | Show naur agenda            | global     |
+| `C-c z A` | Archive conversation        | org buffer |
+| `C-c z f` | Toggle fold at point        | chat buffer|
+| `C-c z s` | Start agent conversation    | naur-mode  |
+| `C-c z l` | Resume last conversation    | naur-mode  |
 
 ## How It Works
 
@@ -85,7 +85,7 @@ The system message is refreshed with current cursor context on every gptel send,
 
 ### Conversation Archiving
 
-`C-c n A` archives a heading's CONVERSATION drawer to `naur/conversations/`, optionally summarizing it via LLM. The drawer is replaced with an org link to the archive file.
+`C-c z A` archives a heading's CONVERSATION drawer to `naur/conversations/`, optionally summarizing it via LLM. The drawer is replaced with an org link to the archive file.
 
 ## Configuration
 
